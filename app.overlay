@@ -1,0 +1,204 @@
+/*
+ * Application hardware configuration for the STM32F103C8T6 board.
+ *
+ * Schematic:
+ *   ADC1 PA0..PA6 : ADC_I_USB7 .. ADC_I_USB1
+ *   I2C1 PB6/PB7  : TCA9535PWR at 0x20
+ *   USART1 PA9/PA10
+ *   SPI2 PB12/PB13/PB15 : LCD CS/SCK/MOSI
+ *   PB10/PB11/PB9       : LCD DC/RST/BL
+ *
+ * LCD: ST7735S-compatible, 128x160 portrait panel using 4-wire SPI.
+ */
+
+#include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+
+/ {
+	leds {
+		/* Extend the board's existing gpio-leds node. */
+		lcd_backlight: lcd-backlight {
+			gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+			label = "LCD_BL";
+		};
+	};
+
+	mipi_dbi: mipi-dbi {
+		compatible = "zephyr,mipi-dbi-spi";
+		status = "okay";
+		spi-dev = <&spi2>;
+		dc-gpios = <&gpiob 10 GPIO_ACTIVE_HIGH>;
+		reset-gpios = <&gpiob 11 GPIO_ACTIVE_LOW>;
+		write-only;
+		#address-cells = <1>;
+		#size-cells = <0>;
+
+		st7735s: st7735s@0 {
+			compatible = "sitronix,st7735r";
+			reg = <0>;
+			mipi-max-frequency = <20000000>;
+			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
+
+			width = <128>;
+			height = <160>;
+			x-offset = <0>;
+			y-offset = <0>;
+
+			madctl = <0x00>;
+			colmod = <0x55>;
+			vmctr1 = <0x0e>;
+			pwctr1 = [a2 02 84];
+			pwctr2 = [c5];
+			pwctr3 = [0a 00];
+			pwctr4 = [8a 2a];
+			pwctr5 = [8a ee];
+			frmctr1 = [01 2c 2d];
+			frmctr2 = [01 2c 2d];
+			frmctr3 = [01 2c 2d 01 2c 2d];
+			gamctrp1 = [02 1c 07 12 37 32 29 2d
+				     29 25 2b 39 00 01 03 10];
+			gamctrn1 = [03 1d 07 06 2e 2c 29 2d
+				     2e 2e 37 3f 00 00 02 10];
+		};
+	};
+
+	chosen {
+		/delete-property/ zephyr,console;
+		/delete-property/ zephyr,shell-uart;
+		zephyr,display = &st7735s;
+	};
+
+	zephyr,user {
+		io-channel-names = "usb7", "usb6", "usb5", "usb4",
+				   "usb3", "usb2", "usb1";
+		/*
+		 * The order is fixed and is used by the application:
+		 *   0: PA0 / ADC1_USB7
+		 *   1: PA1 / ADC1_USB6
+		 *   2: PA2 / ADC1_USB5
+		 *   3: PA3 / ADC1_USB4
+		 *   4: PA4 / ADC1_USB3
+		 *   5: PA5 / ADC1_USB2
+		 *   6: PA6 / ADC1_USB1
+		 */
+		io-channels = <&adc1 0>, <&adc1 1>, <&adc1 2>,
+			      <&adc1 3>, <&adc1 4>, <&adc1 5>,
+			      <&adc1 6>;
+		lcd-backlight-gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+	};
+
+	aliases {
+		host-uart = &usart1;
+		lcd-backlight = &lcd_backlight;
+	};
+};
+
+/* PB10/PB11 are reserved for the LCD DC and reset signals. */
+&usart3 {
+	status = "disabled";
+};
+
+&i2c2 {
+	status = "disabled";
+};
+
+/*
+ * PA4..PA6 are analog inputs in this design. SPI1 is not connected
+ * to the LCD; disable the board default so it cannot claim those pins.
+ */
+&spi1 {
+	status = "disabled";
+};
+
+/* SPI2 is the LCD bus: PB12=GPIO CS, PB13=SCK, PB15=MOSI. */
+&spi2 {
+	pinctrl-0 = <&spi2_sck_master_pb13 &spi2_mosi_master_pb15>;
+	pinctrl-names = "default";
+	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&adc1 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	channel@0 {
+		reg = <0>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@1 {
+		reg = <1>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@2 {
+		reg = <2>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@3 {
+		reg = <3>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@4 {
+		reg = <4>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@5 {
+		reg = <5>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+
+	channel@6 {
+		reg = <6>;
+		zephyr,acquisition-time = <ADC_ACQ_TIME_DEFAULT>;
+		zephyr,gain = "ADC_GAIN_1";
+		zephyr,reference = "ADC_REF_INTERNAL";
+		zephyr,resolution = <12>;
+		zephyr,vref-mv = <3300>;
+	};
+};
+
+&i2c1 {
+	tca9535: gpio-expander@20 {
+		compatible = "nxp,pca95xx";
+		reg = <0x20>;
+		#gpio-cells = <2>;
+		gpio-controller;
+		ngpios = <16>;
+		gpio-line-names = "VUSB1_5V_CTL", "VUSB2_5V_CTL",
+				  "VUSB3_5V_CTL", "VUSB4_5V_CTL",
+				  "VUSB5_5V_CTL", "VUSB6_5V_CTL",
+				  "VUSB7_5V_CTL", "NC",
+				  "D13", "D14", "D15", "D16",
+				  "D17", "D18", "D19", "NC";
+		status = "okay";
+	};
+};
