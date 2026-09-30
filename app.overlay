@@ -12,14 +12,75 @@
  */
 
 #include <zephyr/dt-bindings/gpio/gpio.h>
+#include <zephyr/dt-bindings/adc/adc.h>
+#include <zephyr/dt-bindings/pinctrl/stm32f1-pinctrl.h>
+#include <zephyr/dt-bindings/pwm/pwm.h>
 #include <zephyr/dt-bindings/mipi_dbi/mipi_dbi.h>
+#include <zephyr/dt-bindings/clock/stm32f1_clock.h>
 
 / {
 	leds {
-		/* Extend the board's existing gpio-leds node. */
+		led_d13: led_13 {
+			gpios = <&tca9535 8 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 1 led";
+		};
+
+		led_d14: led_14 {
+			gpios = <&tca9535 9 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 2 led";
+		};
+
+		led_d15: led_15 {
+			gpios = <&tca9535 10 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 3 led";
+		};
+
+		led_d16: led_16 {
+			gpios = <&tca9535 11 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 4 led";
+		};
+
+		led_d17: led_17 {
+			gpios = <&tca9535 12 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 5 led";
+		};
+
+		led_d18: led_18 {
+			gpios = <&tca9535 13 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 6 led";
+		};
+
+		led_d19: led_19 {
+			gpios = <&tca9535 14 GPIO_ACTIVE_LOW>;
+			label = "USB Channel 7 led";
+		};
+	};
+
+	lcd_bl {
+		compatible = "pwm-leds";
+
 		lcd_backlight: lcd-backlight {
-			gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+			pwms = <&pwm4 4 PWM_USEC(500) PWM_POLARITY_NORMAL>;
 			label = "LCD_BL";
+		};
+	};
+
+	gpio_buttons {
+		compatible = "gpio-keys";
+
+		button_0: button_0 {
+			gpios = <&gpioa 8 (GPIO_PULL_DOWN | GPIO_ACTIVE_HIGH)>;
+			label = "Enter Key";
+		};
+
+		button_1: button_1 {
+			gpios = <&gpioa 11 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			label = "Left Key";
+		};
+
+		button_2: button_2 {
+			gpios = <&gpioa 12 (GPIO_PULL_UP | GPIO_ACTIVE_LOW)>;
+			label = "Right Key";
 		};
 	};
 
@@ -56,15 +117,13 @@
 			frmctr2 = [01 2c 2d];
 			frmctr3 = [01 2c 2d 01 2c 2d];
 			gamctrp1 = [02 1c 07 12 37 32 29 2d
-				     29 25 2b 39 00 01 03 10];
+				    29 25 2b 39 00 01 03 10];
 			gamctrn1 = [03 1d 07 06 2e 2c 29 2d
-				     2e 2e 37 3f 00 00 02 10];
+				    2e 2e 37 3f 00 00 02 10];
 		};
 	};
 
 	chosen {
-		/delete-property/ zephyr,console;
-		/delete-property/ zephyr,shell-uart;
 		zephyr,display = &st7735s;
 	};
 
@@ -84,12 +143,133 @@
 		io-channels = <&adc1 0>, <&adc1 1>, <&adc1 2>,
 			      <&adc1 3>, <&adc1 4>, <&adc1 5>,
 			      <&adc1 6>;
-		lcd-backlight-gpios = <&gpiob 9 GPIO_ACTIVE_HIGH>;
+	};
+
+	vusb_switches {
+		compatible = "regulator-fixed";
+		regulator-name = "USB_Power_Switches";
+
+		vusb1_pwr: vusb1_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 0 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB1_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb2_pwr: vusb2_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 1 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB2_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb3_pwr: vusb3_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 2 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB3_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb4_pwr: vusb4_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 3 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB4_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb5_pwr: vusb5_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 4 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB5_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb6_pwr: vusb6_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 5 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUSB6_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
+
+		vusb7_pwr: vusb7_reg {
+			compatible = "regulator-fixed";
+			enable-gpios = <&tca9535 6 GPIO_ACTIVE_HIGH>;
+			regulator-name = "VUS7_5V";
+			startup-delay-us = <500>;
+			regulator-boot-on;
+			regulator-always-on;
+		};
 	};
 
 	aliases {
 		host-uart = &usart1;
-		lcd-backlight = &lcd_backlight;
+		vusb1-pwr = &vusb1_pwr;
+		vusb2-pwr = &vusb2_pwr;
+		vusb3-pwr = &vusb3_pwr;
+		vusb4-pwr = &vusb4_pwr;
+		vusb5-pwr = &vusb5_pwr;
+		vusb6-pwr = &vusb6_pwr;
+		vusb7-pwr = &vusb7_pwr;
+
+		green-led1 = &led_d13;
+		green-led2 = &led_d14;
+		green-led3 = &led_d15;
+		green-led4 = &led_d16;
+		green-led5 = &led_d17;
+		green-led6 = &led_d18;
+		green-led7 = &led_d19;
+
+		enter-key = &button_0;
+		left-key = &button_1;
+		right-key = &button_2;
+	};
+};
+
+&clk_hse {
+	clock-frequency = <DT_FREQ_M(16)>;
+	status = "okay";
+};
+
+&pll {
+	clocks = <&clk_hse>;
+	mul = <9>;
+	xtpre;
+	status = "okay";
+};
+
+&rcc {
+	clocks = <&pll>;
+	clock-frequency = <DT_FREQ_M(72)>;
+	ahb-prescaler = <1>;
+	apb1-prescaler = <2>;
+	apb2-prescaler = <1>;
+};
+
+&pinctrl {
+	tim4_ch4_pwm_out_pb9: tim4_ch4_pwm_out_pb9 {
+		pinmux = <STM32F1_PINMUX('B', 9, ALTERNATE, NO_REMAP)>;
+	};
+};
+
+&timers4 {
+	status = "okay";
+
+	pwm4: pwm {
+		status = "okay";
+		pinctrl-0 = <&tim4_ch4_pwm_out_pb9>;
+		pinctrl-names = "default";
 	};
 };
 
@@ -110,15 +290,15 @@
 	status = "disabled";
 };
 
-/* SPI2 is the LCD bus: PB12=GPIO CS, PB13=SCK, PB15=MOSI. */
-&spi2 {
-	pinctrl-0 = <&spi2_sck_master_pb13 &spi2_mosi_master_pb15>;
-	pinctrl-names = "default";
-	cs-gpios = <&gpiob 12 GPIO_ACTIVE_LOW>;
-	status = "okay";
+&usart2 {
+	status = "disabled";
 };
 
 &adc1 {
+
+	clocks = <&rcc STM32_CLOCK(APB2, 9)>,
+		 <&rcc STM32_SRC_SYSCLK ADC_PRE(ADC_PRE_DIV_6)>;
+	clock-names = "adcx", "adc_pre";
 	#address-cells = <1>;
 	#size-cells = <0>;
 
