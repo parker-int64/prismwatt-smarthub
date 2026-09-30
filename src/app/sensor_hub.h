@@ -1,9 +1,6 @@
 #ifndef SENSOR_HUB_H_
 #define SENSOR_HUB_H_
 
-#include <stdint.h>
-
-
 /**
  * @brief poll function in the main loop 
  */
