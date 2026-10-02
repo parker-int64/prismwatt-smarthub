@@ -94,19 +94,25 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
+
 		st7735s: st7735s@0 {
 			compatible = "sitronix,st7735r";
 			reg = <0>;
 			mipi-max-frequency = <20000000>;
 			mipi-mode = "MIPI_DBI_MODE_SPI_4WIRE";
 
-			width = <128>;
-			height = <160>;
+			width = <160>;
+			height = <128>;
 			x-offset = <0>;
 			y-offset = <0>;
 
-			madctl = <0x00>;
+			/* Landscape: exchange row/column (MV) + mirror column (MX).
+			 * If the image appears upside-down, use 0xA0 (MV|MY) instead.
+			 */
+			madctl = <0xa0>;
+			rgb-is-inverted;
 			colmod = <0x55>;
+			inversion-on;
 			vmctr1 = <0x0e>;
 			pwctr1 = [a2 02 84];
 			pwctr2 = [c5];

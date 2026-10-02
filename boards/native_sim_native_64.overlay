@@ -1,0 +1,19 @@
+#include <zephyr/dt-bindings/display/panel.h>
+
+/ {
+	chosen {
+		zephyr,display = &sdl_dc;
+	};
+};
+
+&sdl_dc {
+	status = "okay";
+	height = <128>;
+	width = <160>;
+	pixel-format = <PANEL_PIXEL_FORMAT_RGB_565>;
+};
+
+&input_sdl_touch {
+	status = "okay";
+	display = <&sdl_dc>;
+};
