@@ -5,11 +5,7 @@
 extern "C" {
 #endif
 
-/*
- * Draw the initial UI: a white screen with a centered "Hello World" text.
- * Uses Zephyr's display write API; the display device and backlight must
- * already be initialized (see display_mgr_init()).
- */
+/* Draw the static dashboard using Zephyr's display API. */
 int app_ui_init(void);
 
 #ifdef __cplusplus

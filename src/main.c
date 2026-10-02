@@ -1,18 +1,23 @@
 #include <zephyr/logging/log.h>
 #include <zephyr/kernel.h>
 #include "app/app_ui.h"
+#ifndef USE_DESKTOP
 #include "app/ext_io.h"
 #include "drivers/adc_sensor.h"
 #include "drivers/binary_sensor.h"
 #include "drivers/display_mgr.h"
+#endif
 
 LOG_MODULE_REGISTER(app, LOG_LEVEL_INF);
 
 int main(void)
 {
+	int ret;
+
 	LOG_INF("application started");
 
-	int ret = ext_io_init();
+#ifndef USE_DESKTOP
+	ret = ext_io_init();
 	if (ret < 0) {
 		LOG_ERR("External IO initialization failed: %d", ret);
 		return ret;
@@ -44,6 +49,7 @@ int main(void)
 		LOG_ERR("Failed to initialize the display: %d", ret);
 		return ret;
 	}
+#endif
 
 	ret = app_ui_init();
 
@@ -52,6 +58,12 @@ int main(void)
 		return ret;
 	}
 
+#ifdef USE_DESKTOP
+	LOG_INF("Running desktop UI simulator");
+	for (;;) {
+		k_sleep(K_FOREVER);
+	}
+#else
 	while (true) {
 		adc_sensor_update();
 
@@ -67,4 +79,5 @@ int main(void)
 	}
 
 	return 0;
+#endif
 }

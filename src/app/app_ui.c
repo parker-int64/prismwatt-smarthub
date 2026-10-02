@@ -1,149 +1,554 @@
 #include "app_ui.h"
+#include "microui.h"
+#include "../ui_font.h"
 
-#include <string.h>
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
 #include <zephyr/drivers/display.h>
 #include <zephyr/logging/log.h>
+#include <zephyr/sys/byteorder.h>
+#include <string.h>
 
 LOG_MODULE_REGISTER(app_ui, LOG_LEVEL_INF);
 
-#define UI_WIDTH  128
-#define UI_HEIGHT 160
+#define UI_WIDTH        160
+#define UI_HEIGHT       128
+#define UI_MARGIN       4
+#define UI_GAP          3
+#define UI_TITLE_HEIGHT 20
+#define UI_CARD_WIDTH   34
+#define UI_CARD_HEIGHT  51
+#define UI_FOCUS_RING   2
+#define UI_CARD_RADIUS  6
+#define ICON_SIZE       24
+#define ICON_STRIDE     (ICON_SIZE / 2)
 
-#define FONT_COLS 5
-#define FONT_ROWS 7
+#define RGB565(r, g, b)                                                                            \
+	((uint16_t)((((uint16_t)(r) >> 3) << 11) | (((uint16_t)(g) >> 2) << 5) |                   \
+		    ((uint16_t)(b) >> 3)))
+#define COLOR_BACKGROUND          RGB565(0x32, 0x32, 0x33)
+#define COLOR_SECONDARY_CONTAINER RGB565(0x59, 0x53, 0x66)
+#define COLOR_CARD                RGB565(0x59, 0x53, 0x66)
 
-/* RGB565 colors */
-#define UI_BLACK 0x0000U
-#define UI_WHITE 0xFFFFU
+extern const ui_font_t google_sans_lvgl;
 
-/*
- * Minimal 5x7 bitmap font. Each glyph is 5 bytes; one byte per column,
- * bit 0 = top row, bit 4 = bottom row (bits 5..7 unused). Only the glyphs
- * needed by the demo string below are provided; extend as required.
- *
- *   'H'  #...#     'W'  #...#     'd'  ....#     'e'  .....
- *        #...#          #...#          ....#          .###.
- *        #...#          #...#          ....#          #...#
- *        #####          #...#          .###.          #####
- *        #...#          #.#.#          #...#          #....
- *        #...#          .#.#.          #...#          .###.
- *        #...#          .....          .###.          .....
- *
- *   'l'  #....     'o'  .....     'r'  .....
- *        #....          .###.          .....
- *        #....          #...#          .####
- *        #....          #...#          #...#
- *        #....          #...#          #....
- *        #....          .###.          #....
- *        #....          .....          #....
- */
-enum {
-	GLYPH_SPACE = 0,
-	GLYPH_H,
-	GLYPH_W,
-	GLYPH_D,
-	GLYPH_E,
-	GLYPH_L,
-	GLYPH_O,
-	GLYPH_R,
-	GLYPH_COUNT,
+static const struct device *display;
+static enum display_pixel_format ui_pixel_format;
+static mu_Context ui;
+
+typedef struct {
+	const uint8_t *bitmap;
+	int x;
+	int y;
+	int size;
+	uint16_t color;
+} dashboard_icon_t;
+
+static dashboard_icon_t dashboard_icons[8];
+static size_t dashboard_icon_count;
+
+static const uint8_t gear_fill_bitmap[ICON_SIZE * ICON_STRIDE] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x7B, 0x40,
+	0x04, 0xB7, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4E, 0xFF, 0xF8, 0x8F, 0xFF, 0xE4,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8F, 0xFF, 0xFF, 0xFF, 0xFF, 0xF8, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x9F, 0xFF, 0xFF, 0xFF, 0xFF, 0xFA, 0x00, 0x00, 0x00, 0x00, 0x04, 0x8A,
+	0xEF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFE, 0x98, 0x40, 0x00, 0x00, 0x1E, 0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xE1, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF, 0x95, 0x59, 0xFF, 0xFF,
+	0xFF, 0xF7, 0x00, 0x00, 0xBF, 0xFF, 0xFF, 0xF4, 0x00, 0x00, 0x5F, 0xFF, 0xFF, 0xFB, 0x00,
+	0x00, 0x4F, 0xFF, 0xFF, 0x90, 0x00, 0x00, 0x09, 0xFF, 0xFF, 0xF4, 0x00, 0x00, 0x08, 0xFF,
+	0xFF, 0x50, 0x00, 0x00, 0x05, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x08, 0xFF, 0xFF, 0x50, 0x00,
+	0x00, 0x05, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x4F, 0xFF, 0xFF, 0x90, 0x00, 0x00, 0x09, 0xFF,
+	0xFF, 0xF4, 0x00, 0x00, 0xBF, 0xFF, 0xFF, 0xF5, 0x00, 0x00, 0x5F, 0xFF, 0xFF, 0xFB, 0x00,
+	0x00, 0x7F, 0xFF, 0xFF, 0xFF, 0x95, 0x59, 0xFF, 0xFF, 0xFF, 0xF7, 0x00, 0x00, 0x1E, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xE1, 0x00, 0x00, 0x04, 0x89, 0xEF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFE, 0xA8, 0x40, 0x00, 0x00, 0x00, 0x00, 0x9F, 0xFF, 0xFF, 0xFF, 0xFF, 0xF9,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x8F, 0xFF, 0xFF, 0xFF, 0xFF, 0xF8, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x4E, 0xFF, 0xF8, 0x8F, 0xFF, 0xE4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x01, 0x7B, 0x40, 0x04, 0xB7, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00,
 };
 
-static const uint8_t font_5x7[GLYPH_COUNT][FONT_COLS] = {
-	[GLYPH_SPACE] = {0x00, 0x00, 0x00, 0x00, 0x00},
-	[GLYPH_H]     = {0x7F, 0x08, 0x08, 0x08, 0x7F},
-	[GLYPH_W]     = {0x1F, 0x20, 0x30, 0x20, 0x1F},
-	[GLYPH_D]     = {0x30, 0x48, 0x48, 0x48, 0x7F},
-	[GLYPH_E]     = {0x1C, 0x2A, 0x2A, 0x2A, 0x2E},
-	[GLYPH_L]     = {0x7F, 0x00, 0x00, 0x00, 0x00},
-	[GLYPH_O]     = {0x1C, 0x22, 0x22, 0x22, 0x3E},
-	[GLYPH_R]     = {0x78, 0x04, 0x04, 0x04, 0x0C},
+static const uint8_t lightning_fill_bitmap[ICON_SIZE * ICON_STRIDE] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x02, 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x1D, 0xF8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0xCF, 0xF5, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1B, 0xFF, 0xF2, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0xBF, 0xFF, 0xE0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x0A, 0xFF, 0xFF, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x9F, 0xFF,
+	0xFF, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x08, 0xFF, 0xFF, 0xFF, 0x91, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x7F, 0xFF, 0xFF, 0xFF, 0xFF, 0xB5, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x06, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xE8, 0x00, 0x00, 0x00, 0x00, 0x5F,
+	0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x20, 0x00, 0x00, 0x02, 0xFF, 0xFF, 0xFF, 0xFF,
+	0xFF, 0xFF, 0xFF, 0xF5, 0x00, 0x00, 0x00, 0x00, 0x8E, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF,
+	0x60, 0x00, 0x00, 0x00, 0x00, 0x00, 0x4A, 0xEF, 0xFF, 0xFF, 0xFF, 0xF7, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x19, 0xFF, 0xFF, 0xFF, 0x80, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x09, 0xFF, 0xFF, 0xF9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0C, 0xFF,
+	0xFF, 0xA0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0E, 0xFF, 0xFB, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2F, 0xFF, 0xC1, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x6F, 0xFC, 0x10, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x9F, 0xD1, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xAD, 0x20,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00,
 };
 
-static uint8_t glyph_index(char c)
+static const uint8_t pulse_bold_bitmap[ICON_SIZE * ICON_STRIDE] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x33, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xFF, 0x20, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0xFF, 0x70, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x1E, 0xFF, 0xD0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x7F, 0xEF, 0xF4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xEF, 0x8C, 0xF9,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x06, 0xFF, 0x26, 0xFE, 0x10, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x0D, 0xF9, 0x01, 0xEF, 0x60, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x22, 0x6F, 0xF3, 0x00, 0xAF, 0xC0, 0x00, 0x00, 0x12, 0x22, 0x00, 0x0A, 0xFF, 0xFF,
+	0xB0, 0x00, 0x4F, 0xF2, 0x00, 0x03, 0xFF, 0xFF, 0xA0, 0x0A, 0xFF, 0xFF, 0x30, 0x00, 0x0D,
+	0xF8, 0x00, 0x0B, 0xFF, 0xFF, 0xA0, 0x00, 0x22, 0x21, 0x00, 0x00, 0x07, 0xFE, 0x00, 0x4F,
+	0xF5, 0x22, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xFF, 0x40, 0xBF, 0xC0, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xBF, 0xA4, 0xFF, 0x40, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x5F, 0xFC, 0xFB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x0E, 0xFF, 0xF4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0xFF, 0xC0,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xFF, 0x40, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x66, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00,
+};
+
+static const uint8_t usb_bitmap[ICON_SIZE * ICON_STRIDE] = {
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x1A, 0xED, 0x60, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xCE, 0x9B, 0xF4, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x02, 0xAB, 0xBB, 0xF6, 0x00, 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A,
+	0xEB, 0xBB, 0xF6, 0x00, 0xDA, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0xCE,
+	0x9B, 0xF4, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0x1A, 0xED, 0x60, 0x00,
+	0x96, 0x00, 0x00, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xB2, 0x00,
+	0x00, 0x00, 0x0B, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFC, 0xEE, 0x60, 0x9B, 0xBB, 0xBE,
+	0xEB, 0xBB, 0xBB, 0xBB, 0xBB, 0xBB, 0xF8, 0x2B, 0xFA, 0x9B, 0xBB, 0xBE, 0xEB, 0xBB, 0xBB,
+	0xBB, 0xBB, 0xBB, 0xF8, 0x2B, 0xFA, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0xFC, 0xEE, 0x60, 0x00, 0x00, 0x0B, 0xB0, 0x00, 0x00, 0x00, 0x00, 0x00, 0xFF, 0xB2, 0x00,
+	0x00, 0x00, 0x0B, 0xB0, 0x00, 0xBF, 0xFF, 0xE5, 0x00, 0x96, 0x00, 0x00, 0x00, 0x00, 0x0B,
+	0xB0, 0x03, 0xFA, 0x88, 0xDB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0xEB, 0xBC, 0xF4,
+	0x00, 0xBB, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02, 0xAB, 0xBC, 0xF4, 0x00, 0xBB, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0xF9, 0x77, 0xDB, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0xBF, 0xFF, 0xE5, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+	0x00, 0x00, 0x00,
+};
+
+static int ui_text_width(mu_Font font, const char *str, int len)
 {
-	switch (c) {
-	case ' ':
-		return GLYPH_SPACE;
-	case 'H':
-		return GLYPH_H;
-	case 'W':
-		return GLYPH_W;
-	case 'd':
-		return GLYPH_D;
-	case 'e':
-		return GLYPH_E;
-	case 'l':
-		return GLYPH_L;
-	case 'o':
-		return GLYPH_O;
-	case 'r':
-		return GLYPH_R;
-	default:
-		return GLYPH_SPACE;
-	}
+	return ui_font_text_width(font, str, len);
 }
 
-int app_ui_init(void)
+static int ui_text_height(mu_Font font)
 {
-	const struct device *display = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
-	struct display_buffer_descriptor desc;
-	static uint16_t line[UI_WIDTH];
-	const char *text = "Hello World";
-	const uint8_t scale = 2;
-	const int text_w = (int)strlen(text) * FONT_COLS * scale;
-	const int text_h = FONT_ROWS * scale;
-	const int x0 = (UI_WIDTH - text_w) / 2;
-	const int y0 = (UI_HEIGHT - text_h) / 2;
-	int ret;
+	return ui_font_text_height(font);
+}
 
-	if (display == NULL || !device_is_ready(display)) {
-		LOG_ERR("Display device not ready");
-		return -ENODEV;
+static int ui_display_write_row(uint16_t x, uint16_t y, uint16_t width, const uint16_t *pixels)
+{
+	struct display_buffer_descriptor desc = {
+		.buf_size = width * sizeof(uint16_t),
+		.width = width,
+		.height = 1,
+		.pitch = width,
+		.frame_incomplete = false,
+	};
+	static uint16_t byte_swapped[UI_WIDTH];
+	const uint16_t *buffer = pixels;
+
+	if (x + width > UI_WIDTH || y >= UI_HEIGHT || width > UI_WIDTH) {
+		return -ERANGE;
 	}
-
-	desc.buf_size = UI_WIDTH * sizeof(uint16_t);
-	desc.width = UI_WIDTH;
-	desc.height = 1;
-	desc.pitch = UI_WIDTH;
-	desc.frame_incomplete = false;
-
-	/*
-	 * Render row by row into a single line buffer: fill white, overlay any
-	 * text pixels that land on this row, then push the row to the display.
-	 */
-	for (int y = 0; y < UI_HEIGHT; y++) {
-		for (int x = 0; x < UI_WIDTH; x++) {
-			line[x] = UI_WHITE;
+	if (ui_pixel_format == PIXEL_FORMAT_RGB_565X) {
+		for (uint16_t i = 0; i < width; i++) {
+			byte_swapped[i] = sys_cpu_to_be16(pixels[i]);
 		}
+		buffer = byte_swapped;
+	} else if (ui_pixel_format != PIXEL_FORMAT_RGB_565) {
+		return -ENOTSUP;
+	}
+	return display_write(display, x, y, &desc, buffer);
+}
 
-		if (y >= y0 && y < y0 + text_h) {
-			int glyph_row = (y - y0) / scale;
+static uint16_t blend_rgb565(uint16_t bg, uint16_t fg, uint8_t coverage, uint8_t max_coverage)
+{
+	int br = (bg >> 11) & 0x1F;
+	int bg_ = (bg >> 5) & 0x3F;
+	int bb = bg & 0x1F;
+	int fr = (fg >> 11) & 0x1F;
+	int fg_ = (fg >> 5) & 0x3F;
+	int fb = fg & 0x1F;
+	int r = (br * (max_coverage - coverage) + fr * coverage + max_coverage / 2) / max_coverage;
+	int g = (bg_ * (max_coverage - coverage) + fg_ * coverage + max_coverage / 2) /
+		max_coverage;
+	int b = (bb * (max_coverage - coverage) + fb * coverage + max_coverage / 2) / max_coverage;
 
-			for (int i = 0; text[i] != '\0'; i++) {
-				const uint8_t *g = font_5x7[glyph_index(text[i])];
+	return (uint16_t)((r << 11) | (g << 5) | b);
+}
 
-				for (int c = 0; c < FONT_COLS; c++) {
-					if (g[c] & (1U << glyph_row)) {
-						int px = x0 + (i * FONT_COLS + c) * scale;
+static int dashboard_draw_bitmap(const dashboard_icon_t *icon)
+{
+	uint16_t row[24];
 
-						for (int sx = 0; sx < scale; sx++) {
-							line[px + sx] = UI_BLACK;
+	if (icon->size > (int)(sizeof(row) / sizeof(row[0])) || icon->x < 0 || icon->y < 0 ||
+	    icon->x + icon->size > UI_WIDTH || icon->y + icon->size > UI_HEIGHT) {
+		return -ERANGE;
+	}
+	for (int y = 0; y < icon->size; y++) {
+		int source_y = ((2 * y + 1) * ICON_SIZE * 128) / icon->size - 128;
+		int y0 = mu_clamp(source_y >> 8, 0, ICON_SIZE - 1);
+		int y1 = mu_min(y0 + 1, ICON_SIZE - 1);
+		int fy = mu_clamp(source_y, 0, (ICON_SIZE - 1) * 256) - y0 * 256;
+
+		for (int x = 0; x < icon->size; x++) {
+			int source_x = ((2 * x + 1) * ICON_SIZE * 128) / icon->size - 128;
+			int x0 = mu_clamp(source_x >> 8, 0, ICON_SIZE - 1);
+			int x1 = mu_min(x0 + 1, ICON_SIZE - 1);
+			int fx = mu_clamp(source_x, 0, (ICON_SIZE - 1) * 256) - x0 * 256;
+			int a00_packed = icon->bitmap[y0 * ICON_STRIDE + x0 / 2];
+			int a10_packed = icon->bitmap[y0 * ICON_STRIDE + x1 / 2];
+			int a01_packed = icon->bitmap[y1 * ICON_STRIDE + x0 / 2];
+			int a11_packed = icon->bitmap[y1 * ICON_STRIDE + x1 / 2];
+			int a00 = (x0 & 1) ? a00_packed & 0x0F : a00_packed >> 4;
+			int a10 = (x1 & 1) ? a10_packed & 0x0F : a10_packed >> 4;
+			int a01 = (x0 & 1) ? a01_packed & 0x0F : a01_packed >> 4;
+			int a11 = (x1 & 1) ? a11_packed & 0x0F : a11_packed >> 4;
+			int top = a00 * (256 - fx) + a10 * fx;
+			int bottom = a01 * (256 - fx) + a11 * fx;
+			uint8_t coverage =
+				(uint8_t)((top * (256 - fy) + bottom * fy + 32768) >> 16);
+
+			row[x] = blend_rgb565(COLOR_CARD, icon->color, coverage, 15);
+		}
+		int ret = ui_display_write_row(icon->x, icon->y + y, icon->size, row);
+		if (ret < 0) {
+			return ret;
+		}
+	}
+	return 0;
+}
+
+static int dashboard_render_text(const ui_font_t *font, const char *str, int x, int y,
+				 int scale_num, int scale_den, uint16_t color, uint16_t bg_color)
+{
+	static uint16_t row[UI_WIDTH];
+	static uint8_t covered[UI_WIDTH];
+	const int width =
+		(ui_font_text_width(font, str, -1) * scale_num + scale_den - 1) / scale_den;
+	const int height = (ui_font_text_height(font) * scale_num + scale_den - 1) / scale_den;
+	const int baseline = (font->ascent * scale_num) / scale_den;
+	const uint8_t max_coverage = (1U << font->bpp) - 1U;
+
+	if (width <= 0 || width > UI_WIDTH || height > UI_HEIGHT) {
+		return -ERANGE;
+	}
+	for (int row_index = 0; row_index < height; row_index++) {
+		memset(covered, 0, width * sizeof(covered[0]));
+		int pen_16 = 0;
+		for (const char *p = str; *p; p++) {
+			const ui_font_glyph_t *glyph = ui_font_find_glyph(font, *p);
+			for (int gy = 0; gy < glyph->h; gy++) {
+				for (int dy = 0; dy < scale_num; dy++) {
+					int dest_y = (baseline + glyph->yoff + gy) * scale_num + dy;
+					if (dest_y / scale_den != row_index) {
+						continue;
+					}
+					for (int gx = 0; gx < glyph->w; gx++) {
+						uint8_t coverage = ui_font_glyph_pixel(
+							glyph, font->bitmap, gx, gy, font->bpp);
+
+						if (coverage == 0) {
+							continue;
+						}
+						int sx = (pen_16 >> 4) + glyph->xoff + gx;
+						for (int dx = 0; dx < scale_num; dx++) {
+							int dest_x =
+								(sx * scale_num + dx) / scale_den;
+							if (dest_x >= 0 && dest_x < width) {
+								row[dest_x] = blend_rgb565(
+									bg_color, color, coverage,
+									max_coverage);
+								covered[dest_x] = 1;
+							}
 						}
 					}
 				}
 			}
+			pen_16 += glyph->advance;
 		}
+		if (y + row_index < 0 || y + row_index >= UI_HEIGHT) {
+			continue;
+		}
+		int left = x < 0 ? 0 : x;
+		int right = x + width > UI_WIDTH ? UI_WIDTH : x + width;
+		for (int run = left; run < right;) {
+			while (run < right && !covered[run - x]) {
+				run++;
+			}
+			int run_end = run;
+			while (run_end < right && covered[run_end - x]) {
+				run_end++;
+			}
+			if (run < run_end) {
+				int ret = ui_display_write_row(run, y + row_index, run_end - run,
+							       &row[run - x]);
+				if (ret < 0) {
+					return ret;
+				}
+			}
+			run = run_end;
+		}
+	}
+	return 0;
+}
 
-		ret = display_write(display, 0, y, &desc, line);
+static void dashboard_draw_card(mu_Context *ctx, int x, int y, const char *label, int width,
+				const uint8_t *icon, int focused, int show_status)
+{
+	mu_Rect card = mu_rect(x, y, width, UI_CARD_HEIGHT);
+
+	if (focused) {
+		mu_draw_rounded_rect(ctx,
+				     mu_rect(x - UI_FOCUS_RING, y - UI_FOCUS_RING,
+					     width + UI_FOCUS_RING * 2,
+					     UI_CARD_HEIGHT + UI_FOCUS_RING * 2),
+				     UI_CARD_RADIUS + UI_FOCUS_RING, mu_color(192, 177, 230, 255));
+	}
+	mu_draw_rounded_rect(ctx, card, UI_CARD_RADIUS, mu_color(89, 83, 102, 255));
+	mu_push_clip_rect(ctx, card);
+	mu_draw_text(ctx, (mu_Font)&google_sans_lvgl, label, -1,
+		     mu_vec2(x + (width - ui_text_width((mu_Font)&google_sans_lvgl, label, -1)) / 2,
+			     y + 2),
+		     mu_color(220, 216, 230, 255));
+	dashboard_icons[dashboard_icon_count++] = (dashboard_icon_t){
+		.bitmap = icon,
+		.x = x + (width - 18) / 2,
+		.y = y + 16,
+		.size = 18,
+		.color = (uint16_t)(((192U * 31 / 255) << 11) | ((177U * 63 / 255) << 5) |
+				    (230U * 31 / 255)),
+	};
+	if (show_status) {
+		mu_draw_text(
+			ctx, (mu_Font)&google_sans_lvgl, "OFF", -1,
+			mu_vec2(x + (width - ui_text_width((mu_Font)&google_sans_lvgl, "OFF", -1)) /
+						2,
+				y + 35),
+			mu_color(220, 216, 230, 255));
+	}
+	mu_pop_clip_rect(ctx);
+}
+
+static int dashboard_page(mu_Context *ctx)
+{
+	static const uint8_t *const channel_icons[] = {
+		lightning_fill_bitmap, pulse_bold_bitmap, usb_bitmap,
+		lightning_fill_bitmap, pulse_bold_bitmap, usb_bitmap,
+		lightning_fill_bitmap,
+	};
+	const char *title = "Smart Hub";
+	const ui_font_t *font = &google_sans_lvgl;
+	const int columns = (UI_WIDTH - UI_MARGIN * 2 + UI_GAP) / (UI_CARD_WIDTH + UI_GAP);
+	const int row_width = columns * UI_CARD_WIDTH + (columns - 1) * UI_GAP;
+	const int start_x = (UI_WIDTH - row_width) / 2;
+	const int start_y = UI_TITLE_HEIGHT + 1;
+
+	dashboard_icon_count = 0;
+	mu_begin(ctx);
+	ctx->clip_stack.items[0] = mu_rect(0, 0, UI_WIDTH, UI_HEIGHT);
+	ctx->clip_stack.idx = 1;
+	mu_draw_rect(ctx, mu_rect(0, 0, UI_WIDTH, UI_HEIGHT), mu_color(50, 50, 51, 255));
+	mu_draw_text(ctx, (mu_Font)font, title, -1, mu_vec2(UI_MARGIN, 1),
+		     mu_color(228, 228, 230, 255));
+
+	for (int i = 0; i < 8; i++) {
+		int column = i % columns;
+		int row = i / columns;
+		int x = start_x + column * (UI_CARD_WIDTH + UI_GAP);
+		int y = start_y + row * (UI_CARD_HEIGHT + UI_GAP);
+
+		if (i < 7) {
+			char label[] = {'C', 'H', (char)('1' + i), '\0'};
+			dashboard_draw_card(ctx, x, y, label, UI_CARD_WIDTH, channel_icons[i],
+					    i == 0, 1);
+		} else {
+			dashboard_draw_card(ctx, x, y, "SET", UI_CARD_WIDTH, gear_fill_bitmap,
+					    false, 0);
+		}
+	}
+	ctx->clip_stack.idx = 0;
+	mu_end(ctx);
+	return 0;
+}
+
+static int dashboard_render(void)
+{
+	mu_Command *command = NULL;
+	int ret;
+
+	while (mu_next_command(&ui, &command)) {
+		if (command->type == MU_COMMAND_RECT) {
+			const mu_Rect rect = command->rect.rect;
+			const mu_Color color = command->rect.color;
+			uint16_t pixel =
+				(uint16_t)(((color.r * 31 / 255) << 11) |
+					   ((color.g * 63 / 255) << 5) | (color.b * 31 / 255));
+			static uint16_t row[UI_WIDTH];
+
+			for (int x = rect.x; x < rect.x + rect.w; x++) {
+				if (x >= 0 && x < UI_WIDTH) {
+					row[x] = pixel;
+				}
+			}
+			for (int y = rect.y; y < rect.y + rect.h; y++) {
+				if (y >= 0 && y < UI_HEIGHT) {
+					ret = ui_display_write_row(rect.x, y, rect.w, &row[rect.x]);
+					if (ret < 0) {
+						return ret;
+					}
+				}
+			}
+		} else if (command->type == MU_COMMAND_ROUNDED_RECT) {
+			const mu_RoundedRectCommand *rounded = &command->rounded_rect;
+			const mu_Rect rect = rounded->rect;
+			const mu_Rect clip = rounded->clip;
+			const int radius = rounded->radius;
+			const mu_Color color = rounded->color;
+			const uint16_t pixel =
+				(uint16_t)(((color.r * 31 / 255) << 11) |
+					   ((color.g * 63 / 255) << 5) | (color.b * 31 / 255));
+			uint16_t row[UI_WIDTH];
+			static const int sample_offsets[] = {1, 3, 5, 7};
+
+			for (int y = clip.y; y < clip.y + clip.h; y++) {
+				int left = mu_max(rect.x, clip.x);
+				int right = mu_min(rect.x + rect.w, clip.x + clip.w);
+				left = mu_max(left, 0);
+				right = mu_min(right, UI_WIDTH);
+				if (left >= right || y < 0 || y >= UI_HEIGHT) {
+					continue;
+				}
+				for (int x = left; x < right; x++) {
+					int coverage = 0;
+
+					if (radius == 0) {
+						coverage = 16;
+					} else {
+						for (size_t sy = 0;
+						     sy < sizeof(sample_offsets) /
+								  sizeof(sample_offsets[0]);
+						     sy++) {
+							int py = (y - rect.y) * 8 +
+								 sample_offsets[sy];
+							int cy = mu_clamp(py, radius * 8,
+									  (rect.h - radius) * 8);
+							int dy = py - cy;
+							for (size_t sx = 0;
+							     sx < sizeof(sample_offsets) /
+									  sizeof(sample_offsets[0]);
+							     sx++) {
+								int px = (x - rect.x) * 8 +
+									 sample_offsets[sx];
+								int cx = mu_clamp(
+									px, radius * 8,
+									(rect.w - radius) * 8);
+								int dx = px - cx;
+								if (dx * dx + dy * dy <=
+								    radius * radius * 64) {
+									coverage++;
+								}
+							}
+						}
+					}
+					row[x - left] = coverage == 16
+								? pixel
+								: blend_rgb565(COLOR_BACKGROUND,
+									       pixel, coverage, 16);
+				}
+				ret = ui_display_write_row(left, y, right - left, row);
+				if (ret < 0) {
+					return ret;
+				}
+			}
+		} else if (command->type == MU_COMMAND_TEXT) {
+			const int title = strcmp(command->text.str, "Smart Hub") == 0;
+			ret = dashboard_render_text(
+				(const ui_font_t *)command->text.font, command->text.str,
+				command->text.pos.x, command->text.pos.y, 1, 1,
+				(uint16_t)(((command->text.color.r * 31 / 255) << 11) |
+					   ((command->text.color.g * 63 / 255) << 5) |
+					   (command->text.color.b * 31 / 255)),
+				title ? COLOR_BACKGROUND : COLOR_SECONDARY_CONTAINER);
+			if (ret < 0) {
+				return ret;
+			}
+		}
+	}
+	return 0;
+}
+
+static int dashboard_render_icons(void)
+{
+	for (size_t i = 0; i < dashboard_icon_count; i++) {
+		int ret = dashboard_draw_bitmap(&dashboard_icons[i]);
 		if (ret < 0) {
-			LOG_ERR("display_write row %d failed: %d", y, ret);
 			return ret;
 		}
 	}
+	return 0;
+}
 
-	LOG_INF("UI drawn: \"%s\"", text);
+int app_ui_init(void)
+{
+	struct display_capabilities capabilities;
+	int ret;
+
+	display = DEVICE_DT_GET(DT_CHOSEN(zephyr_display));
+	if (display == NULL || !device_is_ready(display)) {
+		LOG_ERR("Display device not ready");
+		return -ENODEV;
+	}
+	display_get_capabilities(display, &capabilities);
+	if (capabilities.x_resolution < UI_WIDTH || capabilities.y_resolution < UI_HEIGHT) {
+		LOG_ERR("Display too small for dashboard: %ux%u", capabilities.x_resolution,
+			capabilities.y_resolution);
+		return -ERANGE;
+	}
+	ui_pixel_format = capabilities.current_pixel_format;
+	if (ui_pixel_format != PIXEL_FORMAT_RGB_565 && ui_pixel_format != PIXEL_FORMAT_RGB_565X) {
+		LOG_ERR("Unsupported display pixel format: %d", ui_pixel_format);
+		return -ENOTSUP;
+	}
+
+	mu_init(&ui);
+	ui.text_width = ui_text_width;
+	ui.text_height = ui_text_height;
+	ui.style->font = (mu_Font)&google_sans_lvgl;
+	ret = dashboard_page(&ui);
+	if (ret < 0) {
+		return ret;
+	}
+	ret = dashboard_render();
+	if (ret < 0) {
+		LOG_ERR("Failed to draw dashboard: %d", ret);
+		return ret;
+	}
+	ret = dashboard_render_icons();
+	if (ret < 0) {
+		LOG_ERR("Failed to draw dashboard icons: %d", ret);
+		return ret;
+	}
+	ret = display_blanking_off(display);
+	if (ret < 0) {
+		LOG_ERR("Failed to enable the display: %d", ret);
+		return ret;
+	}
+
+	LOG_INF("Static Smart Hub dashboard displayed");
 	return 0;
 }
